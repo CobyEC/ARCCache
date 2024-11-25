@@ -1,0 +1,145 @@
+---------------------------------------------------------------------------------------------------------
+-- Author: Coby Cockrell
+-- Date: 11/06/2024 
+-- Purpose: This is the testbench for the WAY implementation, testing basic read/write functionality with 
+--          separate write and read line indexes, ensuring that cache hits and misses are handled correctly.
+---------------------------------------------------------------------------------------------------------
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_CacheWay is
+
+end tb_CacheWay;
+
+architecture Behavioral of tb_CacheWay is
+
+    --Constants for the testbench
+    constant DATA_WIDTH : integer := 32;
+    constant ADDR_WIDTH : integer := 10;
+    constant CACHE_LINES : integer := 64;
+
+    --Signals to connect to the CacheWay entity
+    signal clk              : std_logic := '0';
+    signal reset            : std_logic := '0';
+    signal addr_tag         : std_logic_vector(ADDR_WIDTH-1 downto 0);
+    signal data_in          : std_logic_vector(DATA_WIDTH-1 downto 0);
+    signal data_out         : std_logic_vector(DATA_WIDTH-1 downto 0);
+    signal write_en         : std_logic := '0';
+    signal valid            : std_logic := '0';
+    signal hit              : std_logic;
+    signal write_line_index : integer range 0 to CACHE_LINES -1; --Line index for writing
+    signal read_line_index  : integer range 0 to CACHE_LINES -1; --Line index for reading
+    signal WAIT_DAMMIT  : std_logic;
+
+    --Clock period definition
+    constant CLK_PERIOD : time := 10 ns;
+
+begin
+
+    --Instantiate the CacheWay module
+    uut: entity work.CacheWay
+        generic map (
+            DATA_WIDTH => DATA_WIDTH,
+            ADDR_WIDTH => ADDR_WIDTH,
+            CACHE_LINES => CACHE_LINES
+        )
+        port map (
+            clk              => clk,
+            reset            => reset,
+            addr_tag         => addr_tag,
+            data_in          => data_in,
+            data_out         => data_out,
+            write_en         => write_en,
+            valid            => valid,
+            hit              => hit,
+            write_line_index => write_line_index,
+            read_line_index  => read_line_index,
+            WAIT_DAMMIT => WAIT_DAMMIT
+        );
+
+    --Clock generation process
+    clk_process: process
+    begin
+        while true loop
+            clk <= '0';
+            wait for CLK_PERIOD / 2;
+            clk <= '1';
+            wait for CLK_PERIOD / 2;
+        end loop;
+    end process;
+
+    --Test process to simulate different scenarios
+    test_process: process
+    begin
+
+        --Test Case 1: Reset the cache way and check initial state
+        report "Starting Test Case 1: Reset";
+        reset <= '1';           --Assert reset
+        addr_tag <= (others => '0');
+        data_in <= (others => '0');
+        write_en <= '0';
+        write_line_index <= 0;  
+        read_line_index <= 0;   
+
+        wait for CLK_PERIOD;   --Wait for one clock cycle to allow signals to propagate
+
+        assert (hit = '0') report "Test Case 1 Failed: Expected no hit after reset" severity error;
+        assert (valid = '0') report "Test Case 1 Failed: Expected invalid cache way after reset" severity error;
+
+        reset <= '0';           --Deassert reset
+        wait for CLK_PERIOD;    
+
+        report "Test Case 1 Passed";
+
+        --Test Case 2: Write data to a specific line in the cache way and check if it's stored correctly
+        report "Starting Test Case 2: Write Operation";
+        
+        addr_tag <= "0000000001";   --Set address tag to a specific value
+        data_in <= x"DEADBEEF";     --Input some data to be written
+        write_en <= '1';            --Enable writing
+        write_line_index <= 10;     --Write to line index 10
+
+        wait for CLK_PERIOD;        
+
+        write_en <= '0';            
+        
+        wait for CLK_PERIOD;
+
+        assert (valid = '1') report "Test Case 2 Failed: Expected valid cache way after write" severity error;
+        
+        report "Test Case 2 Passed";
+
+        -- Test Case 3: Read from cache way with matching tag (should result in a hit)
+        report "Starting Test Case 3: Read Operation with Hit";
+
+        addr_tag <= "0000000001";   -- Set address tag to match written value
+        read_line_index <= 10;      
+        
+        wait for CLK_PERIOD;        
+
+        assert (hit = '1') report "Test Case 3 Failed: Expected hit on matching tag" severity error;
+        assert (data_out = x"DEADBEEF") report "Test Case 3 Failed: Expected correct data output on hit" severity error;
+
+        report "Test Case 3 Passed";
+
+        
+        --Test Case 4: Read from cache way with non-matching tag (should result in a miss)
+        report "Starting Test Case 4: Read Operation with Miss";
+
+        addr_tag <= "1111111111";   --Set address tag to a non-matching value
+        read_line_index <= 10;      --Read from same line index
+        
+        wait for CLK_PERIOD;        
+
+        assert (hit = '0') report "Test Case 4 Failed: Expected miss on non-matching tag" severity error;
+        
+        report "Test Case 4 Passed";
+
+        
+        wait;   -- Stop simulation
+
+    end process;
+
+end Behavioral;
