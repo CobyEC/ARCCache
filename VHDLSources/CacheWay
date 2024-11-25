@@ -1,0 +1,105 @@
+---------------------------------------------------------------------------------------------------------
+--Author: Coby Cockrell
+--Date: 11/06/2024 
+--Purpose: This is the testbench for the WAY implementation, testing basic read/write functionality and 
+--         ensuring that cache hits and misses are handled correctly.
+---------------------------------------------------------------------------------------------------------
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity CacheWay is
+    generic (
+        DATA_WIDTH : integer := 32;  
+        ADDR_WIDTH : integer := 10;  
+        CACHE_LINES: integer := 128   --Number of lines per cache way
+    );
+    port (
+        clk       : in  std_logic;   
+        reset     : in  std_logic;   
+        addr_tag  : in  std_logic_vector(ADDR_WIDTH-1 downto 0); --Tag from split address
+        data_in   : in  std_logic_vector(DATA_WIDTH-1 downto 0); 
+        data_out  : out std_logic_vector(DATA_WIDTH-1 downto 0); 
+        write_en  : in  std_logic;   
+        valid     : out std_logic := '0'; --Overall validity status of this way
+        hit       : out std_logic;  --Hit signal for this way
+        write_line_index: in integer range 0 to CACHE_LINES -1; --Line index for accessing specific cache line
+        read_line_index: in integer range 0 to CACHE_LINES -1;
+        WAIT_DAMMIT : out std_logic
+    );
+end CacheWay;
+
+architecture Behavioral of CacheWay is
+
+    type cache_line_array is array (0 to CACHE_LINES - 1) of std_logic_vector(DATA_WIDTH-1 downto 0);
+    type tag_array_type is array (0 to CACHE_LINES - 1) of std_logic_vector(ADDR_WIDTH-1 downto 0);
+    type valid_array_type is array (0 to CACHE_LINES - 1) of std_logic;
+
+    signal tag_array   : tag_array_type;                      --Stores tags for each cache line
+    signal data_array  : cache_line_array;                    --Stores data for each cache line
+    signal valid_array : valid_array_type := (others => '0'); --Valid bits for each cache line
+
+
+    signal internal_hit : std_logic := '0';                   --Internal signal for hit detection
+
+
+    --Custom function to perform OR on an array of std_logic values
+    function or_reduce(arr: valid_array_type) return std_logic is
+        variable result: std_logic := '0';
+    begin
+        for i in arr'range loop
+            result := result or arr(i);
+        end loop;
+        return result;
+    end function;
+
+begin
+
+    --Combinational logic for hit detection (use internal signal)
+    internal_hit <= '1' when (valid_array(read_line_index) = '1') and (tag_array(read_line_index) = addr_tag)
+                   else '0';
+
+    hit <= internal_hit; 
+
+    --Combinational logic for overall validity
+    valid <= or_reduce(valid_array);
+
+    --Sequential logic for updating cache lines on write or reset, and reading on hits
+    process(clk, reset)
+    begin 
+        if reset = '1' then 
+            --On reset, clear all stored values and set valid bits to '0'
+            for i in tag_array'range loop
+                tag_array(i) <= (others => '0');
+                data_array(i) <= (others => '0');
+                valid_array(i) <= '0';
+            end loop;
+
+            data_out <= (others => 'Z'); --High-impedance output on reset
+            WAIT_DAMMIT  <=  '1';
+
+        elsif rising_edge(clk) then 
+
+            if write_en = '1' then 
+                --Write operation: update tag, data, and set valid bit at specific line index
+                tag_array(write_line_index) <= addr_tag;       --Update tag at specified line index 
+                data_array(write_line_index) <= data_in;       --Update data at specified line index 
+                valid_array(write_line_index) <= '1';          --Mark this line as valid after writing new data 
+            end if;
+
+            --Read operation: output data from cache line if there's a hit
+            if internal_hit = '1' then
+                
+                data_out <= data_array(read_line_index);       --Output data from the hitting cache line
+                WAIT_DAMMIT  <=  '0';
+            else
+                
+                data_out <= (others => 'Z');                  --Default to high-impedance if no hit
+                WAIT_DAMMIT  <=  '1';
+            end if;
+
+        end if;
+    end process;
+
+end Behavioral;
